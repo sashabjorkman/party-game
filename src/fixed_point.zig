@@ -1,4 +1,7 @@
 pub const F32 = packed struct(i32) {
+    const integer_bits = 16;
+    const fractional_bits = 16;
+
     bits: i32,
 
     /// Initialize a fixed point number with inferred arguments.
@@ -20,7 +23,7 @@ pub const F32 = packed struct(i32) {
     pub inline fn mul(multiplicand: F32, multiplier: anytype) F32 {
         return switch (@typeInfo(@TypeOf(multiplier))) {
             inline .int, .comptime_int => @bitCast(multiplicand.bits * @as(i32, multiplier)),
-            inline else => @bitCast(@as(i32, @intCast((@as(i64, multiplicand.bits) * @as(i64, infer(multiplier))) >> 16))),
+            inline else => @bitCast(@as(i32, @intCast((@as(i64, multiplicand.bits) * @as(i64, infer(multiplier))) >> fractional_bits))),
         };
     }
 
@@ -28,7 +31,7 @@ pub const F32 = packed struct(i32) {
     pub inline fn div(dividend: F32, divisor: anytype) F32 {
         return switch (@typeInfo(@TypeOf(divisor))) {
             inline .int, .comptime_int => @bitCast(@divTrunc(dividend.bits, @as(i32, divisor))),
-            inline else => @bitCast(@as(i32, @intCast(@divTrunc(@as(i64, dividend.bits) << 16, @as(i64, infer(divisor)))))),
+            inline else => @bitCast(@as(i32, @intCast(@divTrunc(@as(i64, dividend.bits) << fractional_bits, @as(i64, infer(divisor)))))),
         };
     }
 
@@ -49,8 +52,8 @@ pub const F32 = packed struct(i32) {
             unreachable;
         }
 
-        const n = @as(i64, self.bits) << 16;
-        var x: i32 = infer(@sqrt(asFloat(self))).bits + 1;
+        const n = @as(i64, self.bits) << fractional_bits;
+        var x: i32 = infer(@sqrt(asFloat(self))) + 1;
 
         if (@as(i64, x) * @as(i64, x) > n) {
             x -= 1;
@@ -77,12 +80,12 @@ pub const F32 = packed struct(i32) {
 
     /// Returns the floored integer representation of a fixed point number.
     pub inline fn asInt(self: F32) i16 {
-        return @truncate(self.bits >> 16);
+        return @truncate(self.bits >> fractional_bits);
     }
 
     /// Returns the floating point representation of a fixed point number.
     pub inline fn asFloat(self: F32) f32 {
-        return @as(f32, @floatFromInt(self.bits)) / (1 << 16);
+        return @as(f32, @floatFromInt(self.bits)) / (1 << fractional_bits);
     }
 
     /// Safely casts a value to its fixed point representation.
@@ -95,8 +98,8 @@ pub const F32 = packed struct(i32) {
         }
 
         return switch (info) {
-            inline .int, .comptime_int => @as(i32, @as(i16, value)) << 16,
-            inline .float, comptime_float => @as(i32, @intFromFloat(value * (1 << 16))),
+            inline .int, .comptime_int => @as(i32, @as(i16, value)) << fractional_bits,
+            inline .float, .comptime_float => @as(i32, @intFromFloat(value * (1 << fractional_bits))),
             inline else => @compileError("Expected fixed point, floating point, or integer type, but got type " ++ @typeName(Type)),
         };
     }

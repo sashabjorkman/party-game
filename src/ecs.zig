@@ -111,6 +111,7 @@ pub fn World(comptime registry: Registry) type {
 
     return struct {
         const SelfWorld = @This();
+        pub const new = SelfWorld{};
 
         comptime registry: Registry = registry,
         entities: Entities = Entities.initEmpty(),
@@ -126,31 +127,11 @@ pub fn World(comptime registry: Registry) type {
             self.buffer = undefined;
         }
 
-        /// Creates a new entity with default intialized components.
-        pub fn spawn(self: *SelfWorld, comptime components: []const type) !Entity {
-            const identifier = self.entities.complement().findFirstSet() orelse {
-                return WorldError.spawn_limit_exceeded;
-            };
-
-            const entity = Entity{
-                .identifier = @intCast(identifier),
-                .generation = self.generations[identifier],
-            };
-
-            self.entities.set(identifier);
-            self.signatures[identifier] = comptime getSignature(components);
-
-            inline for (components) |C| {
-                self.getArray(C)[identifier] = .{};
-            }
-
-            return entity;
-        }
-
         /// Creates a new entity with components inferred from passed values.
-        pub fn spawnWith(self: *SelfWorld, components: anytype) !Entity {
+        pub fn spawn(self: *SelfWorld, components: anytype) !Entity {
             const Type: type = @TypeOf(components);
             const info = @typeInfo(Type);
+
             if (info != .@"struct") {
                 @compileError("Expected tuple or struct argument, found " ++ @typeName(Type));
             }
@@ -173,7 +154,7 @@ pub fn World(comptime registry: Registry) type {
                 .generation = self.generations[identifier],
             };
 
-            const signature = comptime getSignature(component_types);
+            const signature = comptime getComponentSignature(component_types);
 
             self.entities.set(identifier);
 
@@ -181,7 +162,7 @@ pub fn World(comptime registry: Registry) type {
                 const component = @field(components, field.name);
                 const Component: type = @TypeOf(component);
 
-                self.getArray(Component)[identifier] = component;
+                self.getComponentArray(Component)[identifier] = component;
             }
 
             self.signatures[identifier].setUnion(signature);
@@ -200,27 +181,8 @@ pub fn World(comptime registry: Registry) type {
             self.signatures[entity.identifier].mask = 0;
         }
 
-        /// Adds default initialized components to an entity.
-        pub fn promote(self: *SelfWorld, entity: Entity, comptime components: []const type) !void {
-            if (!self.isAlive(entity)) {
-                return WorldError.dead_entity_promoted;
-            }
-
-            const signature = comptime getSignature(components);
-
-            if (self.signatures[entity.identifier].intersectWith(signature).mask != 0) {
-                return WorldError.entity_repromoted;
-            }
-
-            inline for (components) |C| {
-                self.getArray(C)[entity.identifier] = .{};
-            }
-
-            self.signatures[entity.identifier].setUnion(signature);
-        }
-
         /// Adds components to an entity. Components should be passed as a struct.
-        pub fn promoteWith(self: *SelfWorld, entity: Entity, components: anytype) !void {
+        pub fn promote(self: *SelfWorld, entity: Entity, components: anytype) !void {
             const Type: type = @TypeOf(components);
             const info = @typeInfo(Type);
 
@@ -241,7 +203,7 @@ pub fn World(comptime registry: Registry) type {
                 return WorldError.dead_entity_promoted;
             }
 
-            const signature = comptime getSignature(component_types);
+            const signature = comptime getComponentSignature(component_types);
 
             if (self.signatures[entity.identifier].intersectWith(signature).mask != 0) {
                 return WorldError.entity_repromoted;
@@ -251,7 +213,7 @@ pub fn World(comptime registry: Registry) type {
                 const component = @field(components, field.name);
                 const Component: type = @TypeOf(component);
 
-                self.getArray(Component)[entity.identifier] = component;
+                self.getComponentArray(Component)[entity.identifier] = component;
             }
 
             self.signatures[entity.identifier].setUnion(signature);
@@ -259,7 +221,7 @@ pub fn World(comptime registry: Registry) type {
 
         /// Removes components from an entity.
         pub fn demote(self: *SelfWorld, entity: Entity, comptime components: []const type) !void {
-            const signature = comptime getSignature(components);
+            const signature = comptime getComponentSignature(components);
 
             if (!self.isAlive(entity)) {
                 return WorldError.dead_entity_demoted;
@@ -273,29 +235,16 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Inspects a component from an entity. Prefer using `query()`.
-        pub fn inspectConst(self: *const SelfWorld, entity: Entity, comptime C: type) !*const C {
-            if (!isAlive(self, entity)) {
-                return WorldError.dead_entity_inspected;
-            }
-
-            if (self.signatures[entity.identifier].intersectWith(comptime getTag(C)).mask == 0) {
-                return WorldError.entity_lacking_component_inspected;
-            }
-
-            return &self.getArrayConst(C)[entity.identifier];
-        }
-
-        /// Inspects a component from an entity. Prefer using `query()`.
         pub fn inspect(self: *SelfWorld, entity: Entity, comptime C: type) !*C {
             if (!isAlive(self, entity)) {
                 return WorldError.dead_entity_inspected;
             }
 
-            if (self.signatures[entity.identifier].intersectWith(comptime getTag(C)).mask == 0) {
+            if (self.signatures[entity.identifier].intersectWith(comptime getComponentTag(C)).mask == 0) {
                 return WorldError.entity_lacking_component_inspected;
             }
 
-            return &self.getArray(C)[entity.identifier];
+            return &self.getComponentArray(C)[entity.identifier];
         }
 
         /// Returns true if entity currently exists.
@@ -313,8 +262,8 @@ pub fn World(comptime registry: Registry) type {
                 return false;
             }
 
-            const included = comptime getSignature(include);
-            const excluded = comptime getSignature(exclude);
+            const included = comptime getComponentSignature(include);
+            const excluded = comptime getComponentSignature(exclude);
             const signature = self.signatures[entity.identifier];
 
             return signature.intersectWith(included).xorWith(signature.intersectWith(excluded)).eql(included);
@@ -322,33 +271,19 @@ pub fn World(comptime registry: Registry) type {
 
         /// Retrieves all entities matching component signature.
         /// Spawning, killing, promoting, and demoting entities may invalidate queries.
-        pub fn queryConst(self: *const SelfWorld, comptime include: []const type, comptime exclude: []const type) Query(include, exclude, false) {
+        pub fn query(self: *SelfWorld, comptime include: []const type, comptime exclude: []const type) Query(include, exclude) {
             return .init(self);
         }
 
-        /// Retrieves all entities matching component signature.
-        /// Spawning, killing, promoting, and demoting entities may invalidate queries.
-        pub fn query(self: *SelfWorld, comptime include: []const type, comptime exclude: []const type) Query(include, exclude, true) {
-            return .init(self);
-        }
-
-        fn getArrayConst(self: *const SelfWorld, comptime Component: type) *const [registry.entities]Component {
-            const identifier = comptime getIdentifier(Component);
-            const handle = comptime component_handles[identifier];
-            const ptr: *const anyopaque = self.buffer[handle..];
-
-            return @ptrCast(@alignCast(ptr));
-        }
-
-        fn getArray(self: *SelfWorld, comptime Component: type) *[registry.entities]Component {
-            const identifier = comptime getIdentifier(Component);
+        fn getComponentArray(self: *SelfWorld, comptime Component: type) *[registry.entities]Component {
+            const identifier = comptime getComponentIdentifier(Component);
             const handle = comptime component_handles[identifier];
             const ptr: *anyopaque = self.buffer[handle..];
 
             return @ptrCast(@alignCast(ptr));
         }
 
-        fn getIdentifier(comptime Component: type) usize {
+        fn getComponentIdentifier(comptime Component: type) usize {
             comptime {
                 for (registry.components, 0..) |C, i| {
                     if (C == Component) {
@@ -356,11 +291,11 @@ pub fn World(comptime registry: Registry) type {
                     }
                 }
 
-                @compileError("Invalid component: " ++ @typeName(Component));
+                @compileError("Attempted to retrieve identifier of invalid component: " ++ @typeName(Component));
             }
         }
 
-        fn getTag(comptime Component: type) Signature {
+        fn getComponentTag(comptime Component: type) Signature {
             comptime {
                 for (registry.components, 0..) |C, i| {
                     if (C == Component) {
@@ -370,16 +305,16 @@ pub fn World(comptime registry: Registry) type {
                     }
                 }
 
-                @compileError("Invalid component: " ++ @typeName(Component));
+                @compileError("Attempted to retrieve tag of invalid component: " ++ @typeName(Component));
             }
         }
 
-        fn getSignature(comptime components: []const type) Signature {
+        fn getComponentSignature(comptime components: []const type) Signature {
             comptime {
                 var mask = Signature.initEmpty();
 
                 for (components) |c| {
-                    mask.setUnion(getTag(c));
+                    mask.setUnion(getComponentTag(c));
                 }
 
                 return mask;
@@ -389,7 +324,7 @@ pub fn World(comptime registry: Registry) type {
         /// An iterator over entities with a specific component signature.
         /// Included components refers to components that the entity must have.
         /// Excluded components refers to components that the entity must not have.
-        fn Query(comptime include: []const type, comptime exclude: []const type, comptime mutable: bool) type {
+        fn Query(comptime include: []const type, comptime exclude: []const type) type {
             comptime {
                 for (include) |I| {
                     for (exclude) |E| {
@@ -402,7 +337,7 @@ pub fn World(comptime registry: Registry) type {
 
             return struct {
                 const SelfQuery = @This();
-                const QueryWorld = if (mutable) *SelfWorld else *const SelfWorld;
+                const QueryWorld = *SelfWorld;
 
                 /// Wraps an entity in the query context, improving safety and performance.
                 const QueriedEntity = struct {
@@ -421,8 +356,8 @@ pub fn World(comptime registry: Registry) type {
 
                 /// Retrieves the next entity.
                 pub fn next(self: *SelfQuery) ?QueriedEntity {
-                    const included = comptime getSignature(include);
-                    const excluded = comptime getSignature(exclude);
+                    const included = comptime getComponentSignature(include);
+                    const excluded = comptime getComponentSignature(exclude);
 
                     while (self.iterator.next()) |i| {
                         const signature: Signature = self.world.signatures[i];
@@ -441,22 +376,18 @@ pub fn World(comptime registry: Registry) type {
                 }
 
                 /// Retrieves component data of a queried entity.
-                pub fn get(self: *const SelfQuery, entity: QueriedEntity, comptime C: type) if (mutable) *C else *const C {
+                pub fn get(self: *const SelfQuery, entity: QueriedEntity, comptime C: type) *C {
                     comptime {
                         for (include) |c| {
                             if (c == C) {
                                 break;
                             }
                         } else {
-                            @compileError("Invalid component: " ++ @typeName(C));
+                            @compileError("Attempted to retrieve non-queried component: " ++ @typeName(C));
                         }
                     }
 
-                    if (mutable) {
-                        return &self.world.getArray(C)[entity.entity.identifier];
-                    } else {
-                        return &self.world.getArrayConst(C)[entity.entity.identifier];
-                    }
+                    return &self.world.getComponentArray(C)[entity.entity.identifier];
                 }
             };
         }
