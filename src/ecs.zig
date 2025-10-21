@@ -111,7 +111,8 @@ pub fn World(comptime registry: Registry) type {
 
     return struct {
         const SelfWorld = @This();
-        pub const new = SelfWorld{};
+
+        pub const empty = SelfWorld{};
 
         comptime registry: Registry = registry,
         entities: Entities = Entities.initEmpty(),
@@ -128,7 +129,7 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Creates a new entity with components inferred from passed values.
-        pub fn spawn(self: *SelfWorld, components: anytype) !Entity {
+        pub fn initEntity(self: *SelfWorld, components: anytype) !Entity {
             const Type: type = @TypeOf(components);
             const info = @typeInfo(Type);
 
@@ -171,8 +172,8 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Removes an entity.
-        pub fn kill(self: *SelfWorld, entity: Entity) !void {
-            if (!self.isAlive(entity)) {
+        pub fn deinitEntity(self: *SelfWorld, entity: Entity) !void {
+            if (!self.isEntityAlive(entity)) {
                 return WorldError.dead_entity_killed;
             }
 
@@ -182,7 +183,7 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Adds components to an entity. Components should be passed as a struct.
-        pub fn promote(self: *SelfWorld, entity: Entity, components: anytype) !void {
+        pub fn addEntityComponents(self: *SelfWorld, entity: Entity, components: anytype) !void {
             const Type: type = @TypeOf(components);
             const info = @typeInfo(Type);
 
@@ -199,7 +200,7 @@ pub fn World(comptime registry: Registry) type {
                 component_types = component_types ++ .{Component};
             }
 
-            if (!self.isAlive(entity)) {
+            if (!self.isEntityAlive(entity)) {
                 return WorldError.dead_entity_promoted;
             }
 
@@ -220,10 +221,10 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Removes components from an entity.
-        pub fn demote(self: *SelfWorld, entity: Entity, comptime components: []const type) !void {
+        pub fn removeEntityComponents(self: *SelfWorld, entity: Entity, comptime components: []const type) !void {
             const signature = comptime getComponentSignature(components);
 
-            if (!self.isAlive(entity)) {
+            if (!self.isEntityAlive(entity)) {
                 return WorldError.dead_entity_demoted;
             }
 
@@ -235,8 +236,8 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Inspects a component from an entity. Prefer using `query()`.
-        pub fn inspect(self: *SelfWorld, entity: Entity, comptime C: type) !*C {
-            if (!isAlive(self, entity)) {
+        pub fn getEntityComponent(self: *SelfWorld, entity: Entity, comptime C: type) !*C {
+            if (!isEntityAlive(self, entity)) {
                 return WorldError.dead_entity_inspected;
             }
 
@@ -248,7 +249,7 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Returns true if entity currently exists.
-        pub fn isAlive(self: *const SelfWorld, entity: Entity) bool {
+        pub fn isEntityAlive(self: *const SelfWorld, entity: Entity) bool {
             if (!self.entities.isSet(entity.identifier)) {
                 return false;
             }
@@ -257,7 +258,7 @@ pub fn World(comptime registry: Registry) type {
         }
 
         /// Returns true if an entity exists and matches component signature.
-        pub fn hasSignature(self: *const SelfWorld, entity: Entity, comptime include: []const type, comptime exclude: []const type) bool {
+        pub fn isEntitySignature(self: *const SelfWorld, entity: Entity, comptime include: []const type, comptime exclude: []const type) bool {
             if (!self.entities.isSet(entity.identifier)) {
                 return false;
             }
@@ -376,7 +377,7 @@ pub fn World(comptime registry: Registry) type {
                 }
 
                 /// Retrieves component data of a queried entity.
-                pub fn get(self: *const SelfQuery, entity: QueriedEntity, comptime C: type) *C {
+                pub fn getEntityComponent(self: *const SelfQuery, entity: QueriedEntity, comptime C: type) *C {
                     comptime {
                         for (include) |c| {
                             if (c == C) {

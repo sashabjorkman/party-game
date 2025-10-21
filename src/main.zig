@@ -6,6 +6,8 @@ const ecs = @import("ecs.zig");
 const F32 = @import("fixed_point.zig").F32;
 
 pub fn main() !void {
+    // Init allocator and ticker
+
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
     defer if (debug_allocator.deinit() == .leak) {
@@ -16,6 +18,8 @@ pub fn main() !void {
 
     var ticker: Ticker = .init();
 
+    // Init SDL
+
     if (!sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO | sdl.c.SDL_INIT_AUDIO | sdl.c.SDL_INIT_GAMEPAD)) {
         std.debug.print("{s}\n", .{sdl.c.SDL_GetError()});
         return error.sdl_init;
@@ -24,8 +28,12 @@ pub fn main() !void {
 
     std.debug.print("{s} {}\n", .{ "fizz buzz", 21 });
 
+    // Init renderer
+
     var renderer: Renderer = try .init("#party", 640, 360, sdl.c.SDL_WINDOW_INPUT_FOCUS | sdl.c.SDL_WINDOW_MOUSE_FOCUS);
     defer renderer.deinit(allocator);
+
+    // Main loop
 
     var running = true;
     var event: sdl.c.SDL_Event = undefined;
