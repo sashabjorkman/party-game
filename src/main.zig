@@ -20,18 +20,6 @@ pub fn main() !void {
         std.debug.print("{s}\n", .{sdl.c.SDL_GetError()});
         return error.sdl_init;
     }
-<<<<<<< Updated upstream
-
-=======
-}
-
-pub fn main() !void {
-    if (sdl.c.SDL_Init(
-        sdl.c.SDL_INIT_VIDEO |
-            sdl.c.SDL_INIT_AUDIO |
-            sdl.c.SDL_INIT_GAMEPAD,
-    ) == false) return error.sdl_init;
->>>>>>> Stashed changes
     defer sdl.c.SDL_Quit();
 
     std.debug.print("{s} {}\n", .{ "fizz buzz", 21 });
